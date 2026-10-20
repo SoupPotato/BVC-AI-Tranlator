@@ -1,6 +1,6 @@
 import { APP_CONFIG } from "./config.js";
 import { LANGUAGES, SPEECH_LANGS, langByCode, speechLangByCode } from "./languages.js";
-import { createTransport } from "./transport.js";
+import { createTransport, hashAdminKey } from "./transport.js";
 import { translateText, warmUpOnDevice, onDeviceAvailable } from "./translate.js";
 import { AudioMixer } from "./audio.js";
 import { LiveRecognizer } from "./speech.js";
@@ -40,7 +40,7 @@ const mixer = new AudioMixer();
 mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
-const APP_VERSION = "v6"; // bump when shipping changes, so it's easy to confirm what's running
+const APP_VERSION = "v7"; // bump when shipping changes, so it's easy to confirm what's running
 $("church").textContent = `${APP_CONFIG.churchName || ""} · ${APP_VERSION}`;
 
 // ── installable desktop app ──
@@ -486,6 +486,49 @@ $("copyUrl").onclick = async () => {
   }
 };
 
+// ─────────────────────────── take over the room ───────────────────────────
+let takeoverBusy = false;
+async function takeOverRoom() {
+  const btn = $("takeOver");
+  takeoverBusy = true;
+  btn.disabled = true;
+  btn.textContent = "Disconnecting…";
+  showNotice("Asking the other control page to disconnect…");
+  // Same-browser control windows step aside straight away.
+  adminChannel && adminChannel.postMessage({ type: "taking-over", id: windowId });
+
+  let savedKey = "";
+  try {
+    savedKey = localStorage.getItem("bvc-admin-key") || "";
+  } catch {}
+  let r = await transport.requestTakeover(savedKey);
+  if (!r.ok && (r.reason === "key-required" || r.reason === "bad-key")) {
+    const key = prompt("The other control page is LIVE right now. Enter the admin key to take over anyway:");
+    if (key) {
+      r = await transport.requestTakeover(key);
+      if (r.ok)
+        try {
+          localStorage.setItem("bvc-admin-key", key);
+        } catch {}
+    }
+  }
+
+  takeoverBusy = false;
+  btn.disabled = false;
+  btn.textContent = "⏏ Disconnect other control pages";
+  if (r.ok || r.reason === "gone") showNotice("Disconnected the other control page. Taking over the room…");
+  else if (r.reason === "live")
+    showError(
+      "The other control page is LIVE right now, so it can't be disconnected remotely. Press Pause or End on that page first (or set an admin key — see README)."
+    );
+  else if (r.reason === "bad-key" || r.reason === "key-required") showError("Wrong or missing admin key — the other control page is still in charge.");
+  else if (r.reason === "no-answer")
+    showError(
+      "The other control page didn't answer — it's probably an older version (e.g. a saved file or an old tab) that can't be disconnected remotely. Close it by hand. If you can't find it, change peer.roomId in js/config.js and push."
+    );
+  else showError("Couldn't reach the other control page (" + r.reason + "). Try again in a moment.");
+}
+
 // ─────────────────────────── startup ───────────────────────────
 let started = false;
 function startApp() {
@@ -561,14 +604,25 @@ function startApp() {
       const [text, cls] = labels[s] || [s, ""];
       badge.textContent = text;
       badge.className = "pill " + cls;
+      $("takeOver").hidden = s !== "id-taken";
       if (s === "id-taken") {
-        showError(
-          "This room ID is already being hosted — probably another admin tab or computer. Close it and this page will take over automatically within a few seconds."
-        );
-      } else if (s === "online" && $("audioNote").textContent.startsWith("This room ID")) {
+        if (!takeoverBusy)
+          showError(
+            "Another control page (another tab, browser or computer) is holding the room. Close it, or press “Disconnect other control pages”."
+          );
+      } else if (s === "online" && /holding the room|Disconnected the other|Taking over/.test($("audioNote").textContent)) {
         $("audioNote").hidden = true;
       }
     });
+    transport.onTakenOver(() => {
+      stopRecognizer();
+      state = "offline";
+      renderState();
+      $("goLive").disabled = true;
+      showError("Another control page disconnected this one and took over the room. This page is now inactive — reload it if you need it again.");
+    });
+    $("takeOver").onclick = takeOverRoom;
+    window.bvcHashAdminKey = hashAdminKey; // setup helper for peer.adminKeyHash (see README)
     badge.title = "Listeners connect directly to this computer. Keep this page open while live.";
     startApp();
     return;

@@ -127,6 +127,12 @@ function writerApi(send) {
 }
 
 // ───────────────────────────── Peer-to-peer (PeerJS) ─────────────────────────────
+// SHA-256 hex of an admin key (used to authorise taking over a LIVE control page).
+export async function hashAdminKey(key) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(key)));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (window.Peer) return resolve();
@@ -201,6 +207,7 @@ async function createPeerHost(cfg) {
         const info = conns.get(conn);
         if (!info) return;
         info.seen = Date.now();
+        if (d && d.type === "takeover") return handleTakeover(conn, d);
         if (d && d.type === "presence" && typeof d.lang === "string" && info.lang !== d.lang.slice(0, 12)) {
           info.lang = d.lang.slice(0, 12);
           emitPresence();
@@ -212,8 +219,9 @@ async function createPeerHost(cfg) {
       conn.on("close", drop);
       conn.on("error", drop);
     });
+    let rejected = false; // the room was taken; PeerJS also fires "disconnected" while tearing down
     p.on("disconnected", () => {
-      if (!current() || p.destroyed) return;
+      if (!current() || p.destroyed || rejected) return;
       // Lost the signalling server. Existing listeners stay connected; new ones can't join until we're back.
       setNet("reconnecting");
       setTimeout(() => current() && !p.destroyed && p.disconnected && p.reconnect(), 1500);
@@ -221,6 +229,7 @@ async function createPeerHost(cfg) {
     p.on("error", (err) => {
       if (!current()) return;
       if (err.type === "unavailable-id") {
+        rejected = true;
         setNet("id-taken");
         p.destroy();
         reopen(3000);
@@ -266,24 +275,94 @@ async function createPeerHost(cfg) {
     }
   }, HEARTBEAT_EVERY);
 
+  // Give up the room for good (another control page is taking over).
+  function shutdown() {
+    stopped = true;
+    clearTimeout(reopenTimer);
+    for (const conn of conns.keys()) {
+      try {
+        conn.close();
+      } catch {}
+    }
+    conns.clear();
+    emitPresence();
+    if (peer) peer.destroy();
+    setNet("stopped");
+  }
+
+  // Another control page (any browser/computer) asks us to release the room.
+  // Idle/paused/ended pages always agree. A LIVE page only agrees if the request
+  // carries the admin key whose hash is in config (peer.adminKeyHash).
+  const takenOverSubs = new Set();
+  async function handleTakeover(conn, d) {
+    const live = store.state.status && store.state.status.state === "live";
+    let ok = !live;
+    if (live && cfg.adminKeyHash && typeof d.key === "string" && d.key) {
+      ok = (await hashAdminKey(d.key)) === String(cfg.adminKeyHash).toLowerCase();
+    }
+    if (!ok) {
+      const reason = !cfg.adminKeyHash ? "live" : d.key ? "bad-key" : "key-required";
+      try {
+        conn.send({ type: "takeover-denied", reason });
+      } catch {}
+      return;
+    }
+    try {
+      conn.send({ type: "takeover-ok" });
+    } catch {}
+    setTimeout(() => {
+      shutdown();
+      takenOverSubs.forEach((f) => f());
+    }, 300);
+  }
+
+  // Ask whoever holds the room to release it. Resolves { ok, reason }.
+  function requestTakeover(key) {
+    return new Promise((resolve) => {
+      const tmp = new window.Peer(peerOptions(cfg));
+      let done = false;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        setTimeout(() => tmp.destroy(), 200);
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish({ ok: false, reason: "no-answer" }), 10000);
+      tmp.on("error", (err) => finish({ ok: false, reason: err.type === "peer-unavailable" ? "gone" : "error: " + err.type }));
+      tmp.on("open", () => {
+        const c = tmp.connect(cfg.roomId, { reliable: true });
+        c.on("open", () => c.send({ type: "takeover", key: key || "" }));
+        c.on("data", (m) => {
+          if (m && m.type === "takeover-ok") finish({ ok: true });
+          else if (m && m.type === "takeover-denied") finish({ ok: false, reason: m.reason });
+        });
+      });
+    }).then((r) => {
+      if (r.ok || r.reason === "gone") {
+        // Room is (about to be) free: claim it now instead of waiting for the next retry.
+        clearTimeout(reopenTimer);
+        reopenTimer = null;
+        stopped = false;
+        reopenTimer = setTimeout(() => {
+          reopenTimer = null;
+          open();
+        }, 800);
+      }
+      return r;
+    });
+  }
+
   return {
     mode: "peer",
     needsAuth: false,
     ...writerApi(send),
     ...store.listeners,
-    // Give up the room for good (another control window is taking over).
-    shutdown() {
-      stopped = true;
-      clearTimeout(reopenTimer);
-      for (const conn of conns.keys()) {
-        try {
-          conn.close();
-        } catch {}
-      }
-      conns.clear();
-      emitPresence();
-      if (peer) peer.destroy();
-      setNet("stopped");
+    shutdown,
+    requestTakeover,
+    onTakenOver(cb) {
+      takenOverSubs.add(cb);
+      return () => takenOverSubs.delete(cb);
     },
     onPresence(cb) {
       presenceSubs.add(cb);

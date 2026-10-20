@@ -21,6 +21,11 @@ export const APP_CONFIG = {
     // Optional: your own STUN/TURN servers. Leave empty to use PeerJS's defaults
     // (which include free STUN + TURN relays for phones on strict mobile networks).
     iceServers: [],
+    // Optional: lets "Disconnect other control pages" take over a page that is LIVE.
+    // Without it, only idle/paused/ended control pages can be disconnected remotely.
+    // To set one: open admin.html, press F12 → Console, run  await bvcHashAdminKey("your secret")
+    // and paste the result here. Anyone taking over a live page must then type that secret.
+    adminKeyHash: "",
   },
 
   // Firebase web config (used when transport is "firebase"). From:

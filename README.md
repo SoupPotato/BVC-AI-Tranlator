@@ -60,7 +60,9 @@ On the sound-booth PC, open `admin.html` in Chrome or Edge and click **⬇ Insta
 ### Tips
 - **"Recognition: reconnecting…"** is normal. The browser's speech service restarts every minute or so, and the app reconnects automatically.
 - **Which source is recognised:** newer Chrome versions recognise the mixed sources you tick. Some browser versions only use the **Windows default recording device**. If the transcript doesn't follow your chosen input, right-click the speaker icon → *Sound settings* → set that device as the default input.
-- **"Room in use"** on the admin page means another tab or computer is already hosting. Close the other one and this page takes over within a few seconds.
+- **"Room in use"** on the admin page means another control page (another tab, browser or computer) is holding the room. Press **⏏ Disconnect other control pages** and it lets go within seconds.
+  - A control page that is **live** mid-service won't let go unless you've set an **admin key**. To set one, open `admin.html`, press F12 → Console, run `await bvcHashAdminKey("your secret")`, and paste the result into `peer.adminKeyHash` in `js/config.js`. The disconnect button then asks for the secret.
+  - Very old copies (like a saved HTML file) can't be disconnected remotely. Close those by hand.
 - **Listeners using read aloud** should keep the page open with the screen on. The app asks the phone to stay awake, but iPhones may stop speaking when locked. Earbuds are recommended.
 - **Phones that won't connect:** some phones on strict cellular networks can't connect directly to the PC. PeerJS's default free relay (TURN) servers usually handle this. Asking people to join the church Wi-Fi helps too.
 
