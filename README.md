@@ -36,6 +36,14 @@ A free, two-part live translation app for church services, hosted on **GitHub Pa
       - You: `https://<your-username>.github.io/<repo-name>/admin.html`
 3. Turn the listener link into a QR code for the bulletin or screens. The admin page shows the link with a **Copy** button.
 
+### Downloadable control tool (optional)
+[`dist/BVC-Translation-Control.html`](dist/BVC-Translation-Control.html) is the whole control page in **one file**. Save it to the sound-booth PC and double-click it to open in Chrome or Edge. It joins the same room as the website, so listeners use the normal link. It still needs internet for speech recognition, translation and the peer connection.
+
+After changing `js/config.js` or any code, rebuild it:
+```
+powershell -ExecutionPolicy Bypass -File tools\build-standalone.ps1
+```
+
 ---
 
 ## Running a service

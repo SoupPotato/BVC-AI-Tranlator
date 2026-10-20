@@ -41,7 +41,8 @@ mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
 $("church").textContent = APP_CONFIG.churchName || "";
-$("listenerUrl").value = location.href.replace(/admin\.html.*$/, "").replace(/[?#].*$/, "");
+$("listenerUrl").value =
+  APP_CONFIG.listenerUrl || location.href.replace(/admin\.html.*$/, "").replace(/[?#].*$/, "");
 
 function showError(msg) {
   const n = $("audioNote");

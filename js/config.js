@@ -5,6 +5,9 @@ export const APP_CONFIG = {
   churchName: "BVC",
   appTitle: "Live Sermon Translation",
 
+  // Public address of the listener page (shown on the admin page for copying / QR codes)
+  listenerUrl: "https://souppotato.github.io/BVC-AI-Tranlator/",
+
   // How the admin page reaches listeners:
   //   "peer"     – peer-to-peer, no account needed (admin page must stay open while live)
   //   "firebase" – Firebase Realtime Database (fill in `firebase` below; see README)

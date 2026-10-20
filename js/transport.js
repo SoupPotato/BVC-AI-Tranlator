@@ -16,6 +16,8 @@ import { APP_CONFIG } from "./config.js";
 
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
 const PEERJS_SDK = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+const HEARTBEAT_EVERY = 3000; // ms between pings, both directions
+const HEARTBEAT_TIMEOUT = 10000; // ms of silence before a link is treated as dead
 
 /** @param {"admin"|"listener"} role */
 export async function createTransport(role) {
@@ -174,13 +176,16 @@ async function createPeerHost(cfg) {
     peer = new window.Peer(cfg.roomId, peerOptions(cfg));
     peer.on("open", () => setNet("online"));
     peer.on("connection", (conn) => {
-      conns.set(conn, { lang: null });
+      conns.set(conn, { lang: null, seen: Date.now() });
       conn.on("open", () => {
         for (const m of store.snapshot()) conn.send(m);
       });
       conn.on("data", (d) => {
-        if (d && d.type === "presence" && typeof d.lang === "string" && conns.has(conn)) {
-          conns.get(conn).lang = d.lang.slice(0, 12);
+        const info = conns.get(conn);
+        if (!info) return;
+        info.seen = Date.now();
+        if (d && d.type === "presence" && typeof d.lang === "string" && info.lang !== d.lang.slice(0, 12)) {
+          info.lang = d.lang.slice(0, 12);
           emitPresence();
         }
       });
@@ -223,6 +228,25 @@ async function createPeerHost(cfg) {
   };
   addEventListener("pagehide", () => peer && peer.destroy());
 
+  // Heartbeat: WebRTC can take a long time to notice a vanished peer, so ping every
+  // listener and drop any that have gone quiet (they ping back via presence).
+  setInterval(() => {
+    const now = Date.now();
+    for (const [conn, info] of conns) {
+      if (now - info.seen > HEARTBEAT_TIMEOUT) {
+        conns.delete(conn);
+        try {
+          conn.close();
+        } catch {}
+        emitPresence();
+      } else if (conn.open) {
+        try {
+          conn.send({ type: "ping" });
+        } catch {}
+      }
+    }
+  }, HEARTBEAT_EVERY);
+
   return {
     mode: "peer",
     needsAuth: false,
@@ -251,6 +275,7 @@ async function createPeerClient(cfg) {
   let conn = null;
   let myLang = null;
   let retryTimer = null;
+  let lastHeard = 0;
 
   const setNet = (s) => {
     if (s === net) return;
@@ -295,10 +320,14 @@ async function createPeerClient(cfg) {
     const c = peer.connect(cfg.roomId, { reliable: true });
     conn = c;
     c.on("open", () => {
+      lastHeard = Date.now();
       setNet("connected");
       if (myLang) c.send({ type: "presence", lang: myLang });
     });
-    c.on("data", (m) => store.apply(m));
+    c.on("data", (m) => {
+      lastHeard = Date.now();
+      store.apply(m);
+    });
     const lost = () => {
       if (conn !== c) return;
       conn = null;
@@ -311,6 +340,25 @@ async function createPeerClient(cfg) {
     setTimeout(() => conn === c && !c.open && (c.close(), lost()), 15000);
   }
   connect();
+
+  // Heartbeat: the host pings every few seconds. If it goes quiet (admin page closed,
+  // PC asleep, network dropped) treat the link as dead and start reconnecting.
+  setInterval(() => {
+    if (!conn || !conn.open) return;
+    if (Date.now() - lastHeard > HEARTBEAT_TIMEOUT) {
+      const dead = conn;
+      conn = null;
+      try {
+        dead.close();
+      } catch {}
+      setNet("waiting");
+      retry(500);
+    } else {
+      try {
+        conn.send({ type: "ping" });
+      } catch {}
+    }
+  }, HEARTBEAT_EVERY);
 
   // Phones suspend background tabs; reconnect as soon as the page is visible again.
   document.addEventListener("visibilitychange", () => {
