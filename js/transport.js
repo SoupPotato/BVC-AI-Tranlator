@@ -28,7 +28,10 @@ export async function createTransport(role) {
     return createFirebaseTransport(cfg);
   }
   if (kind === "peer") {
-    const cfg = APP_CONFIG.peer || {};
+    const cfg = { ...(APP_CONFIG.peer || {}) };
+    // ?room=xyz on both pages runs a separate test room without touching the real one.
+    const testRoom = new URLSearchParams(location.search).get("room");
+    if (testRoom) cfg.roomId = `${cfg.roomId}-test-${testRoom.replace(/[^a-z0-9-]/gi, "").slice(0, 20)}`;
     if (!cfg.roomId) throw new Error('transport is "peer" but js/config.js has no peer.roomId');
     return role === "admin" ? createPeerHost(cfg) : createPeerClient(cfg);
   }
@@ -147,7 +150,7 @@ async function createPeerHost(cfg) {
   await loadScript(PEERJS_SDK);
   const store = makeStore();
   // Survive an admin page reload mid-service: restore status + recent captions from this PC.
-  const SAVE_KEY = "bvc-peer-host-state";
+  const SAVE_KEY = "bvc-peer-host-state:" + cfg.roomId;
   try {
     Object.assign(store.state, JSON.parse(localStorage.getItem(SAVE_KEY)) || {});
   } catch {}
@@ -162,6 +165,7 @@ async function createPeerHost(cfg) {
   const netSubs = new Set();
   let net = "connecting";
   let peer = null;
+  let stopped = false;
 
   const setNet = (s, detail) => {
     net = s;
@@ -172,10 +176,23 @@ async function createPeerHost(cfg) {
     presenceSubs.forEach((f) => f(list));
   };
 
+  // At most one pending re-open at a time, so retries can't multiply.
+  let reopenTimer = null;
+  const reopen = (ms) => {
+    if (stopped || reopenTimer) return;
+    reopenTimer = setTimeout(() => {
+      reopenTimer = null;
+      open();
+    }, ms);
+  };
+
   function open() {
-    peer = new window.Peer(cfg.roomId, peerOptions(cfg));
-    peer.on("open", () => setNet("online"));
-    peer.on("connection", (conn) => {
+    if (stopped) return;
+    if (peer && !peer.destroyed) peer.destroy();
+    const p = (peer = new window.Peer(cfg.roomId, peerOptions(cfg)));
+    const current = () => p === peer; // ignore events from replaced Peer objects
+    p.on("open", () => current() && setNet("online"));
+    p.on("connection", (conn) => {
       conns.set(conn, { lang: null, seen: Date.now() });
       conn.on("open", () => {
         for (const m of store.snapshot()) conn.send(m);
@@ -195,19 +212,21 @@ async function createPeerHost(cfg) {
       conn.on("close", drop);
       conn.on("error", drop);
     });
-    peer.on("disconnected", () => {
+    p.on("disconnected", () => {
+      if (!current() || p.destroyed) return;
       // Lost the signalling server. Existing listeners stay connected; new ones can't join until we're back.
       setNet("reconnecting");
-      setTimeout(() => peer && !peer.destroyed && peer.disconnected && peer.reconnect(), 1500);
+      setTimeout(() => current() && !p.destroyed && p.disconnected && p.reconnect(), 1500);
     });
-    peer.on("error", (err) => {
+    p.on("error", (err) => {
+      if (!current()) return;
       if (err.type === "unavailable-id") {
         setNet("id-taken");
-        peer.destroy();
-        setTimeout(open, 5000);
-      } else if (peer.destroyed) {
-        setNet("reconnecting", err.type);
-        setTimeout(open, 3000);
+        p.destroy();
+        reopen(3000);
+      } else if (p.destroyed) {
+        if (net !== "id-taken") setNet("reconnecting", err.type);
+        reopen(3000);
       } else {
         console.warn("PeerJS:", err.type, err);
       }
@@ -252,6 +271,20 @@ async function createPeerHost(cfg) {
     needsAuth: false,
     ...writerApi(send),
     ...store.listeners,
+    // Give up the room for good (another control window is taking over).
+    shutdown() {
+      stopped = true;
+      clearTimeout(reopenTimer);
+      for (const conn of conns.keys()) {
+        try {
+          conn.close();
+        } catch {}
+      }
+      conns.clear();
+      emitPresence();
+      if (peer) peer.destroy();
+      setNet("stopped");
+    },
     onPresence(cb) {
       presenceSubs.add(cb);
       emitPresence();

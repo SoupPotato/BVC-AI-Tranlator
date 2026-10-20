@@ -83,6 +83,31 @@ function showError(msg) {
   n.hidden = false;
   console.error(msg);
 }
+function showNotice(msg) {
+  const n = $("audioNote");
+  n.textContent = msg;
+  n.className = "notice small";
+  n.hidden = false;
+}
+
+// Only one control window may listen at a time (Chrome allows a single active
+// speech recognizer, and two would cancel each other endlessly). When one goes
+// live, any other control window in this browser pauses itself.
+const adminChannel = "BroadcastChannel" in window ? new BroadcastChannel("bvc-admin") : null;
+const windowId = Math.random().toString(36).slice(2);
+if (adminChannel) {
+  adminChannel.onmessage = (e) => {
+    if (e.data && e.data.type === "taking-over" && e.data.id !== windowId) {
+      // Step aside completely: stop listening and hand the listener room to the other window.
+      stopRecognizer();
+      state = "offline";
+      renderState();
+      $("goLive").disabled = true;
+      transport && transport.shutdown && transport.shutdown();
+      showError("Another control window went live, so this one has stepped aside. Close this window, or reload it to use it again.");
+    }
+  };
+}
 const safe = (p) =>
   Promise.resolve(p).catch((err) => {
     const m = String(err && (err.code || err.message || err));
@@ -129,6 +154,7 @@ $("goLive").onclick = async () => {
     $("log").innerHTML = "";
     logEntries.clear();
   }
+  adminChannel && adminChannel.postMessage({ type: "taking-over", id: windowId });
   state = "live";
   renderState();
   await pushStatus();
@@ -171,14 +197,28 @@ function startRecognizer() {
     lang: settings.speechLang,
     onInterim: sendInterim,
     onFinal: (text) => publishLine(text),
-    onState: (s) => {
-      $("recState").textContent =
-        "Recognition: " + (s === "listening" ? "listening 🎙" : s === "restarting" ? "reconnecting…" : "idle");
+    onState: (s, info) => {
+      let text = "idle";
+      if (s === "listening") text = "listening 🎙";
+      else if (s === "restarting") {
+        text = "reconnecting…";
+        if (info && info.reason && info.reason !== "no-speech") text += ` (last error: ${info.reason})`;
+        if (info && info.delay >= 2000) text += ` — retrying in ${Math.round(info.delay / 1000)}s`;
+      }
+      $("recState").textContent = "Recognition: " + text;
     },
+    onNotice: (msg) => showNotice(msg),
     onError: (e) => {
-      if (e === "not-allowed" || e === "service-not-allowed") showError("Microphone/speech permission was blocked. Allow it in the address bar and press Go live again.");
-      else if (e === "network") showError("Speech recognition lost its network connection — retrying…");
-      else if (e === "audio-capture") showError("No audio input found. Check your audio source.");
+      if (e === "not-allowed" || e === "service-not-allowed")
+        showError("Microphone/speech permission was blocked. Allow it in the address bar (or app window's ⋮ → App info → Permissions) and press Go live again.");
+      else if (e === "aborted-loop")
+        showError(
+          "Speech recognition keeps getting cancelled. Another tab, app window or saved copy of this control page is probably listening at the same time — close all other control pages and keep only this one."
+        );
+      else if (e === "network")
+        showError("Speech recognition can't reach its online service (network error). Check the internet connection — retrying…");
+      else if (e === "audio-capture") showError("No audio input found. Check your audio source and Windows sound settings.");
+      else if (e === "language-not-supported") showError("This browser doesn't support speech recognition for the selected speaker language.");
       else showError("Speech recognition: " + e);
     },
   });
@@ -480,6 +520,7 @@ function startApp() {
       online: ["Peer-to-peer · online", "ok"],
       reconnecting: ["Peer-to-peer · reconnecting…", "paused"],
       "id-taken": ["Room in use · retrying…", "live"],
+      stopped: ["Inactive", ""],
     };
     transport.onNetwork((s) => {
       const [text, cls] = labels[s] || [s, ""];
