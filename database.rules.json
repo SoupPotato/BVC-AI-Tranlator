@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "live": {
+      ".read": true,
+      ".write": "auth != null && auth.uid === 'PASTE_YOUR_ADMIN_UID_HERE'"
+    },
+    "presence": {
+      ".read": "auth != null && auth.uid === 'PASTE_YOUR_ADMIN_UID_HERE'",
+      "$id": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['lang'])",
+        "lang": { ".validate": "newData.isString() && newData.val().length < 12" },
+        "at": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

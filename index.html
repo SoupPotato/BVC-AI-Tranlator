@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Live Translation</title>
+  <meta name="description" content="Live sermon translation — choose your language to read or listen." />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="listener">
+  <header class="top">
+    <div class="wrap">
+      <div class="top-row">
+        <div class="brand">
+          <div class="church" id="church"></div>
+          <div class="title" id="title">Live Translation</div>
+        </div>
+        <span class="pill" id="status">Connecting…</span>
+      </div>
+      <div class="controls">
+        <select id="lang" aria-label="Language"></select>
+        <button class="toggle" id="voice" aria-pressed="false" title="Read the translation aloud">🔈 Read aloud</button>
+        <span class="size-btns">
+          <button class="btn" id="smaller" aria-label="Smaller text">A−</button>
+          <button class="btn" id="bigger" aria-label="Larger text">A+</button>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="waiting" id="waiting">
+      <div class="icon">⛪</div>
+      <h1 id="waitTitle">Translation hasn't started yet</h1>
+      <p class="muted" id="waitText">Keep this page open. Captions appear here automatically when the service begins.</p>
+    </section>
+    <p class="notice" id="voiceNote" hidden></p>
+    <section class="feed" id="feed" aria-live="polite"></section>
+  </main>
+
+  <button class="btn primary jump" id="jump" hidden>↓ Jump to latest</button>
+
+  <script type="module" src="js/listener.js"></script>
+</body>
+</html>

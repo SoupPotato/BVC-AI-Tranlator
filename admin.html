@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Translation Control</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="admin">
+  <header class="top">
+    <div class="top-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div class="brand">
+        <div class="church" id="church"></div>
+        <div class="title">Translation Control</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="pill" id="modeBadge"></span>
+        <span class="small muted" id="who"></span>
+        <button class="btn small" id="signOut" hidden>Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sign in (Firebase mode only) -->
+  <section class="card login" id="loginCard" hidden>
+    <h2>Admin sign in</h2>
+    <form id="loginForm">
+      <label class="field"><span>Email</span><input type="email" id="email" autocomplete="username" required /></label>
+      <label class="field"><span>Password</span><input type="password" id="password" autocomplete="current-password" required /></label>
+      <button class="btn primary" style="width:100%">Sign in</button>
+      <p class="notice error small" id="loginErr" hidden></p>
+    </form>
+  </section>
+
+  <main id="app" hidden>
+    <div class="col">
+      <!-- Broadcast control -->
+      <section class="card">
+        <div class="big-status">
+          <h2 style="margin:0">Broadcast</h2>
+          <span class="pill" id="statusPill">Offline</span>
+        </div>
+        <label class="field"><span>Service title (shown to listeners)</span>
+          <input type="text" id="svcTitle" placeholder="Sunday Service" />
+        </label>
+        <div class="btn-row">
+          <button class="btn go" id="goLive">● Go live</button>
+          <button class="btn warn" id="pause" disabled>❚❚ Pause</button>
+          <button class="btn danger" id="end" disabled>■ End</button>
+        </div>
+        <p class="small muted" id="recState" style="margin:10px 0 0">Recognition: idle</p>
+        <div class="stats">
+          <span><b id="listenerCount">0</b> listening</span>
+          <span class="muted" id="langCounts"></span>
+        </div>
+        <div class="link-row">
+          <input type="text" id="listenerUrl" readonly aria-label="Listener link" />
+          <button class="btn small" id="copyUrl">Copy</button>
+        </div>
+      </section>
+
+      <!-- Audio sources -->
+      <section class="card">
+        <h2>Audio sources</h2>
+        <p class="small muted" style="margin-top:-6px">Tick one or more inputs (mic, mixer/USB interface, virtual cable). They are mixed together and sent to speech recognition.</p>
+        <div id="sources"><button class="btn primary" id="allowAudio">Allow audio access</button></div>
+        <div class="mix-row">
+          <span style="width:64px">Mix level</span>
+          <div class="meter" id="mixMeter"><i></i></div>
+        </div>
+        <label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <input type="checkbox" id="cleanup" checked /> Voice cleanup (noise suppression + auto-gain)
+        </label>
+        <p class="notice small" id="audioNote" hidden></p>
+      </section>
+
+      <!-- Languages -->
+      <section class="card">
+        <h2>Languages</h2>
+        <label class="field"><span>Speaker is speaking</span><select id="speechLang"></select></label>
+        <label class="field"><span>Translation engine</span>
+          <select id="engine">
+            <option value="auto">Google (free) + on-device backup</option>
+            <option value="google">Google only</option>
+            <option value="chrome">Chrome on-device only (offline-capable)</option>
+          </select>
+        </label>
+        <span class="small muted">Offer these languages to listeners:</span>
+        <div class="lang-grid" id="langGrid"></div>
+      </section>
+    </div>
+
+    <div class="col col-right">
+      <section class="card">
+        <h2>Live transcript</h2>
+        <div class="interim-box" id="interim">Not listening.</div>
+        <div class="log" id="log"></div>
+        <form class="manual" id="manualForm">
+          <input type="text" id="manualText" placeholder="Type a line to send (announcements, corrections, testing)…" />
+          <button class="btn primary">Send</button>
+        </form>
+        <p class="small muted" style="margin-bottom:0">Typed lines are translated and sent like speech, even when not live.</p>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>
