@@ -191,6 +191,7 @@ function sendInterim(text) {
   else interimTimer = setTimeout(go, 350);
 }
 
+let recStateTimer = null;
 function startRecognizer() {
   stopRecognizer();
   recognizer = new LiveRecognizer({
@@ -198,14 +199,19 @@ function startRecognizer() {
     onInterim: sendInterim,
     onFinal: (text) => publishLine(text),
     onState: (s, info) => {
-      let text = "idle";
-      if (s === "listening") text = "listening 🎙";
-      else if (s === "restarting") {
-        text = "reconnecting…";
-        if (info && info.reason && info.reason !== "no-speech") text += ` (last error: ${info.reason})`;
-        if (info && info.delay >= 2000) text += ` — retrying in ${Math.round(info.delay / 1000)}s`;
-      }
-      $("recState").textContent = "Recognition: " + text;
+      // Chrome ends recognition after a few seconds of silence (and about once a minute
+      // regardless); we restart it straight away. Only show "reconnecting" if the
+      // restart is slow or something actually went wrong, so the status doesn't flicker.
+      clearTimeout(recStateTimer);
+      const show = (text) => ($("recState").textContent = "Recognition: " + text);
+      if (s === "listening") return show("listening 🎙");
+      if (s !== "restarting") return show("idle");
+      const problem = info && info.reason && info.reason !== "no-speech" && info.reason !== "aborted";
+      let text = "reconnecting…";
+      if (problem) text += ` (last error: ${info.reason})`;
+      if (info && info.delay >= 2000) text += ` — retrying in ${Math.round(info.delay / 1000)}s`;
+      if (problem || (info && info.delay >= 2000)) show(text);
+      else recStateTimer = setTimeout(() => show(text), 2000);
     },
     onNotice: (msg) => showNotice(msg),
     onError: (e) => {
