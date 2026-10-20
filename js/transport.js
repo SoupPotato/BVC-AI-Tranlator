@@ -173,7 +173,9 @@ async function createPeerHost(cfg) {
   let peer = null;
   let stopped = false;
 
+  let netSince = Date.now();
   const setNet = (s, detail) => {
+    if (s !== net) netSince = Date.now();
     net = s;
     netSubs.forEach((f) => f(s, detail));
   };
@@ -182,8 +184,12 @@ async function createPeerHost(cfg) {
     presenceSubs.forEach((f) => f(list));
   };
 
-  // At most one pending re-open at a time, so retries can't multiply.
+  // At most one pending re-open at a time, so retries can't multiply. Failed attempts
+  // back off (3s, 6s, 12s … 60s) so we never hammer the free PeerJS server, which
+  // rate-limits busy addresses (HTTP 429).
   let reopenTimer = null;
+  let failures = 0;
+  const backoff = () => Math.min(60000, 3000 * 2 ** Math.min(failures++, 5));
   const reopen = (ms) => {
     if (stopped || reopenTimer) return;
     reopenTimer = setTimeout(() => {
@@ -197,7 +203,11 @@ async function createPeerHost(cfg) {
     if (peer && !peer.destroyed) peer.destroy();
     const p = (peer = new window.Peer(cfg.roomId, peerOptions(cfg)));
     const current = () => p === peer; // ignore events from replaced Peer objects
-    p.on("open", () => current() && setNet("online"));
+    p.on("open", () => {
+      if (!current()) return;
+      failures = 0;
+      setNet("online");
+    });
     p.on("connection", (conn) => {
       conns.set(conn, { lang: null, seen: Date.now() });
       conn.on("open", () => {
@@ -232,16 +242,35 @@ async function createPeerHost(cfg) {
         rejected = true;
         setNet("id-taken");
         p.destroy();
-        reopen(3000);
-      } else if (p.destroyed) {
+        reopen(Math.min(backoff(), 15000)); // check back fairly often for the room to free up
+      } else if (["network", "server-error", "socket-error", "socket-closed"].includes(err.type) || p.destroyed) {
+        // Can't reach the PeerJS server: drop this attempt and retry later with backoff.
         if (net !== "id-taken") setNet("reconnecting", err.type);
-        reopen(3000);
+        if (!p.destroyed) p.destroy();
+        reopen(backoff());
       } else {
         console.warn("PeerJS:", err.type, err);
       }
     });
   }
   open();
+
+  // Watchdog: PeerJS's own reconnect can fail without telling us. If we haven't been
+  // online for a while (and aren't simply waiting for the room), start completely fresh.
+  setInterval(() => {
+    if (stopped || reopenTimer || net === "online" || net === "id-taken") return; // a retry is already scheduled
+    if (Date.now() - netSince < 10000) return;
+    netSince = Date.now();
+    reopen(backoff());
+  }, 3000);
+  // Coming back from sleep / network change: check promptly.
+  addEventListener("online", () => {
+    if (!stopped && net !== "online") {
+      clearTimeout(reopenTimer);
+      reopenTimer = null;
+      open();
+    }
+  });
 
   const send = (m) => {
     store.apply(m);
@@ -389,9 +418,11 @@ async function createPeerClient(cfg) {
   let retryTimer = null;
   let lastHeard = 0;
 
+  let netSince = Date.now();
   const setNet = (s) => {
     if (s === net) return;
     net = s;
+    netSince = Date.now();
     netSubs.forEach((f) => f(s));
   };
   const retry = (ms = 4000) => {
@@ -399,24 +430,33 @@ async function createPeerClient(cfg) {
     retryTimer = setTimeout(connect, ms);
   };
 
+  // Back off on repeated failures so a room full of phones (all sharing the church's
+  // internet address) doesn't trip the free PeerJS server's rate limit.
+  let failures = 0;
+  const backoff = (base, max) => Math.min(max, base * 2 ** Math.min(failures++, 5)) + Math.random() * 1000;
+
   function connect() {
     clearTimeout(retryTimer);
+    retryTimer = null;
     if (conn && conn.open) return;
     if (!peer || peer.destroyed) {
-      peer = new window.Peer(peerOptions(cfg));
-      peer.on("open", connect);
-      peer.on("disconnected", () => !peer.destroyed && peer.reconnect());
-      peer.on("error", (err) => {
+      const p = (peer = new window.Peer(peerOptions(cfg)));
+      p.on("open", () => p === peer && connect());
+      p.on("disconnected", () => p === peer && !p.destroyed && p.reconnect());
+      p.on("error", (err) => {
+        if (p !== peer) return;
         if (err.type === "peer-unavailable") {
-          // Admin page isn't open (yet). Keep waiting.
+          // Admin page isn't open (yet). Keep waiting (cheap: reuses our server connection).
           setNet("waiting");
-          retry(5000);
-        } else if (peer.destroyed) {
-          peer = null;
-          setNet("connecting");
-          retry(3000);
+          retry(backoff(5000, 20000));
         } else {
-          retry(4000);
+          // Can't reach the PeerJS server: start over later with a fresh Peer.
+          try {
+            p.destroy();
+          } catch {}
+          peer = null;
+          if (net !== "waiting") setNet("connecting");
+          retry(backoff(3000, 60000));
         }
       });
       return;
@@ -433,6 +473,7 @@ async function createPeerClient(cfg) {
     conn = c;
     c.on("open", () => {
       lastHeard = Date.now();
+      failures = 0;
       setNet("connected");
       if (myLang) c.send({ type: "presence", lang: myLang });
     });
@@ -471,6 +512,20 @@ async function createPeerClient(cfg) {
       } catch {}
     }
   }, HEARTBEAT_EVERY);
+
+  // Watchdog: if we've been unable to connect for a while, throw the Peer away and
+  // start fresh (PeerJS can get stuck "disconnected" from its server without an error).
+  setInterval(() => {
+    if (net === "connected" || retryTimer || Date.now() - netSince < 30000) return; // a retry is already scheduled
+    netSince = Date.now();
+    if (peer && !peer.destroyed && !peer.open) {
+      try {
+        peer.destroy();
+      } catch {}
+      peer = null;
+    }
+    connect();
+  }, 5000);
 
   // Phones suspend background tabs; reconnect as soon as the page is visible again.
   document.addEventListener("visibilitychange", () => {

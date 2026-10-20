@@ -40,7 +40,7 @@ const mixer = new AudioMixer();
 mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
-const APP_VERSION = "v8"; // bump when shipping changes, so it's easy to confirm what's running
+const APP_VERSION = "v10"; // bump when shipping changes, so it's easy to confirm what's running
 $("church").textContent = `${APP_CONFIG.churchName || ""} · ${APP_VERSION}`;
 
 // ── installable desktop app ──
