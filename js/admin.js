@@ -41,6 +41,38 @@ mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
 $("church").textContent = APP_CONFIG.churchName || "";
+
+// ── installable desktop app ──
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js", { scope: "./admin.html" }).catch((err) => console.warn("Service worker:", err));
+}
+let installPrompt = null;
+addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $("installApp").hidden = false;
+});
+addEventListener("appinstalled", () => {
+  installPrompt = null;
+  $("installApp").hidden = true;
+});
+$("installApp").onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $("installApp").hidden = true;
+};
+if (location.protocol === "file:") {
+  const p = document.createElement("p");
+  p.className = "notice error";
+  p.style.margin = "16px";
+  p.textContent =
+    "This page was opened from a file, so Chrome will keep asking for microphone permission. " +
+    "Open the online control page instead and click “Install app” to get a desktop app: " +
+    (APP_CONFIG.listenerUrl ? APP_CONFIG.listenerUrl + "admin.html" : "admin.html on your website");
+  document.body.prepend(p);
+}
 $("listenerUrl").value =
   APP_CONFIG.listenerUrl || location.href.replace(/admin\.html.*$/, "").replace(/[?#].*$/, "");
 

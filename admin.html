@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex" />
   <title>Translation Control</title>
+  <link rel="manifest" href="admin.webmanifest" />
+  <meta name="theme-color" content="#2f5bd3" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body class="admin">
@@ -15,6 +19,7 @@
         <div class="title">Translation Control</div>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn small primary" id="installApp" hidden title="Install this console as a desktop app">⬇ Install app</button>
         <span class="pill" id="modeBadge"></span>
         <span class="small muted" id="who"></span>
         <button class="btn small" id="signOut" hidden>Sign out</button>

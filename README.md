@@ -36,13 +36,11 @@ A free, two-part live translation app for church services, hosted on **GitHub Pa
       - You: `https://<your-username>.github.io/<repo-name>/admin.html`
 3. Turn the listener link into a QR code for the bulletin or screens. The admin page shows the link with a **Copy** button.
 
-### Downloadable control tool (optional)
-[`dist/BVC-Translation-Control.html`](dist/BVC-Translation-Control.html) is the whole control page in **one file**. Save it to the sound-booth PC and double-click it to open in Chrome or Edge. It joins the same room as the website, so listeners use the normal link. It still needs internet for speech recognition, translation and the peer connection.
-
-After changing `js/config.js` or any code, rebuild it:
-```
-powershell -ExecutionPolicy Bypass -File tools\build-standalone.ps1
-```
+### Install the control tool as a desktop app (recommended)
+On the sound-booth PC, open `admin.html` in Chrome or Edge and click **⬇ Install app** in the top bar. If the button doesn't appear, use the browser's address-bar install icon, or **⋮ menu → Cast, save and share → Install page as app**. You get a **BVC Translation Control** icon on the desktop and Start menu that opens in its own window.
+- It always loads the latest version from your GitHub site.
+- Chrome **remembers microphone permission**, so you only allow it once.
+- Don't save the page as a file and open it from disk. Chrome never remembers permissions for files, so it would ask for the microphone over and over.
 
 ---
 
