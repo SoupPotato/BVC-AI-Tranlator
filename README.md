@@ -46,7 +46,7 @@ On the sound-booth PC, open `admin.html` in Chrome or Edge and click **⬇ Insta
 
 ## Running a service
 
-1. On the sound-booth PC, open `admin.html` in **Google Chrome** (or Microsoft Edge). The badge at the top should turn green: **Peer-to-peer · online**.
+1. On the sound-booth PC, open `admin.html` in **Google Chrome** or **Microsoft Edge**. Brave, Opera and Vivaldi can't do speech recognition and fail with a "network" error. The badge at the top should turn green: **Peer-to-peer · online**.
 2. **Audio sources:** click *Allow audio access*, then tick the inputs to use (pulpit mic, mixer USB feed, virtual audio cable, etc.). Use each slider to balance levels, and watch the meters.
    - A clean feed from the soundboard (aux or matrix out → USB interface) gives the best accuracy. Avoid a room mic that picks up music or the congregation.
 3. **Languages:** set what the speaker is speaking and tick the languages to offer.

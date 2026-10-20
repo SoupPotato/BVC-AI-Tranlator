@@ -40,7 +40,7 @@ const mixer = new AudioMixer();
 mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
-const APP_VERSION = "v5"; // bump when shipping changes, so it's easy to confirm what's running
+const APP_VERSION = "v6"; // bump when shipping changes, so it's easy to confirm what's running
 $("church").textContent = `${APP_CONFIG.churchName || ""} · ${APP_VERSION}`;
 
 // ── installable desktop app ──
@@ -64,6 +64,23 @@ $("installApp").onclick = async () => {
   installPrompt = null;
   $("installApp").hidden = true;
 };
+// Brave (and some other Chromium browsers) expose speech recognition but can't use
+// Google's speech service, so it fails with endless "network" errors.
+(async () => {
+  let brave = false;
+  try {
+    brave = !!(navigator.brave && (await navigator.brave.isBrave()));
+  } catch {}
+  if (!brave) return;
+  const p = document.createElement("p");
+  p.className = "notice error";
+  p.style.margin = "16px";
+  p.textContent =
+    "You're using Brave, which can't run speech recognition (it isn't allowed to use Google's speech service). " +
+    "Please open this control page in Google Chrome or Microsoft Edge. Listeners can still use any browser.";
+  document.body.prepend(p);
+})();
+
 if (location.protocol === "file:") {
   const p = document.createElement("p");
   p.className = "notice error";
