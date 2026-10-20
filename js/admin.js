@@ -40,7 +40,7 @@ const mixer = new AudioMixer();
 mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
-const APP_VERSION = "v7"; // bump when shipping changes, so it's easy to confirm what's running
+const APP_VERSION = "v8"; // bump when shipping changes, so it's easy to confirm what's running
 $("church").textContent = `${APP_CONFIG.churchName || ""} · ${APP_VERSION}`;
 
 // ── installable desktop app ──
@@ -226,8 +226,9 @@ function startRecognizer() {
       clearTimeout(recStateTimer);
       const show = (text) => ($("recState").textContent = "Recognition: " + text);
       if (s === "listening") {
+        const input = info && info.usingMix ? " (selected sources)" : " (Windows default mic)";
         const extra = recRestarts ? ` · auto-restarts: ${recRestarts} (last: ${recLastReason})` : "";
-        return show("listening 🎙" + extra);
+        return show("listening 🎙" + input + extra);
       }
       if (s !== "restarting") return show("idle");
       recRestarts++;
@@ -240,6 +241,11 @@ function startRecognizer() {
       else recStateTimer = setTimeout(() => show(text), 6000); // only if it doesn't come back
     },
     onNotice: (msg) => showNotice(msg),
+    onHeard: () => {
+      // Speech is coming through, so any earlier recognition error is stale.
+      const n = $("audioNote");
+      if (n.classList.contains("error") && /Speech recognition|recognition keeps/.test(n.textContent)) n.hidden = true;
+    },
     onError: (e) => {
       if (e === "not-allowed" || e === "service-not-allowed")
         showError("Microphone/speech permission was blocked. Allow it in the address bar (or app window's ⋮ → App info → Permissions) and press Go live again.");

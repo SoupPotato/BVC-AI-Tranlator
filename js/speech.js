@@ -5,15 +5,25 @@
 // of hammering the speech service, and the last error is reported.
 
 const QUICK_FAIL_MS = 3000; // a session shorter than this with no speech counts as a failure
+const NO_TRACK_KEY = "bvc-recognition-no-track"; // this browser can't recognise a mixed track
+
+function trackUnsupportedHere() {
+  try {
+    return localStorage.getItem(NO_TRACK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export class LiveRecognizer {
-  constructor({ lang, onInterim, onFinal, onState, onError, onNotice }) {
+  constructor({ lang, onInterim, onFinal, onState, onError, onNotice, onHeard }) {
     this.lang = lang;
     this.onInterim = onInterim || (() => {});
     this.onFinal = onFinal || (() => {});
     this.onState = onState || (() => {});
     this.onError = onError || (() => {});
     this.onNotice = onNotice || (() => {});
+    this.onHeard = onHeard || (() => {});
     this.wanted = false;
     this.rec = null;
     this.fails = 0; // consecutive quick failures
@@ -27,7 +37,8 @@ export class LiveRecognizer {
   start(track) {
     this.wanted = true;
     this.track = track || null;
-    this.useTrack = !!track;
+    this.useTrack = !!track && !trackUnsupportedHere();
+    this.fellBack = false;
     this.fails = 0;
     this.abortedRuns = 0;
     this._spawn();
@@ -53,12 +64,20 @@ export class LiveRecognizer {
     r.interimResults = true;
     r.maxAlternatives = 1;
 
-    const run = { startedAt: Date.now(), heard: false, error: null };
+    const run = { startedAt: Date.now(), heard: false, error: null, withTrack: this.useTrack };
 
-    r.onstart = () => this.onState("listening");
+    r.onstart = () => this.onState("listening", { usingMix: run.withTrack });
     r.onresult = (e) => {
       if (this.rec !== r) return;
-      run.heard = true;
+      if (!run.heard) {
+        run.heard = true;
+        this.onHeard();
+        // The default-mic fallback works here: remember it so we skip the mix next time.
+        if (this.fellBack)
+          try {
+            localStorage.setItem(NO_TRACK_KEY, "1");
+          } catch {}
+      }
       this.fails = 0;
       this.abortedRuns = 0;
       let interim = "";
@@ -77,6 +96,12 @@ export class LiveRecognizer {
       if (this.rec !== r) return;
       run.error = e.error;
       if (e.error === "no-speech") return; // normal during silence
+      // Some browsers (e.g. Edge) reject a MediaStreamTrack and report it as a
+      // "network"/"audio-capture" error. Switch to the default microphone quietly.
+      if (run.withTrack && (e.error === "network" || e.error === "audio-capture" || e.error === "bad-grammar")) {
+        run.trackRejected = true;
+        return;
+      }
       if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "language-not-supported") {
         this.wanted = false;
       }
@@ -97,12 +122,13 @@ export class LiveRecognizer {
         this.abortedRuns = 0;
       }
 
-      // The browser accepted the mixed track but recognition won't run with it.
-      if (this.useTrack && this.fails >= 3) {
+      // The browser won't run recognition on the mixed track: use the default microphone.
+      if (this.useTrack && (run.trackRejected || this.fails >= 3)) {
         this.useTrack = false;
+        this.fellBack = true;
         this.fails = 0;
         this.onNotice(
-          "This browser can't run speech recognition on the selected audio mix, so it's using the Windows default microphone instead. Set your source as the default recording device in Windows Sound settings."
+          "This browser can't run speech recognition on the selected audio sources directly, so it's listening to the Windows default recording device. Make your source the default: right-click the speaker icon → Sound settings → Input."
         );
       }
 
