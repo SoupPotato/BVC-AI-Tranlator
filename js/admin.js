@@ -40,7 +40,8 @@ const mixer = new AudioMixer();
 mixer.voiceCleanup = settings.cleanup;
 let recognizer = null;
 
-$("church").textContent = APP_CONFIG.churchName || "";
+const APP_VERSION = "v5"; // bump when shipping changes, so it's easy to confirm what's running
+$("church").textContent = `${APP_CONFIG.churchName || ""} · ${APP_VERSION}`;
 
 // ── installable desktop app ──
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -192,8 +193,11 @@ function sendInterim(text) {
 }
 
 let recStateTimer = null;
+let recRestarts = 0;
+let recLastReason = "";
 function startRecognizer() {
   stopRecognizer();
+  recRestarts = 0;
   recognizer = new LiveRecognizer({
     lang: settings.speechLang,
     onInterim: sendInterim,
@@ -204,14 +208,19 @@ function startRecognizer() {
       // restart is slow or something actually went wrong, so the status doesn't flicker.
       clearTimeout(recStateTimer);
       const show = (text) => ($("recState").textContent = "Recognition: " + text);
-      if (s === "listening") return show("listening 🎙");
+      if (s === "listening") {
+        const extra = recRestarts ? ` · auto-restarts: ${recRestarts} (last: ${recLastReason})` : "";
+        return show("listening 🎙" + extra);
+      }
       if (s !== "restarting") return show("idle");
+      recRestarts++;
+      recLastReason = (info && info.reason) || "routine";
       const problem = info && info.reason && info.reason !== "no-speech" && info.reason !== "aborted";
       let text = "reconnecting…";
       if (problem) text += ` (last error: ${info.reason})`;
       if (info && info.delay >= 2000) text += ` — retrying in ${Math.round(info.delay / 1000)}s`;
-      if (problem || (info && info.delay >= 2000)) show(text);
-      else recStateTimer = setTimeout(() => show(text), 2000);
+      if (problem) show(text);
+      else recStateTimer = setTimeout(() => show(text), 6000); // only if it doesn't come back
     },
     onNotice: (msg) => showNotice(msg),
     onError: (e) => {
@@ -222,7 +231,10 @@ function startRecognizer() {
           "Speech recognition keeps getting cancelled. Another tab, app window or saved copy of this control page is probably listening at the same time — close all other control pages and keep only this one."
         );
       else if (e === "network")
-        showError("Speech recognition can't reach its online service (network error). Check the internet connection — retrying…");
+        showError(
+          "Speech recognition can't reach its online speech service (network error). This happens in browsers like Brave, Opera or Vivaldi (use Google Chrome or Microsoft Edge), " +
+            "or when a firewall, content filter or VPN blocks Google's speech service (try Microsoft Edge, which uses Microsoft's service). Retrying…"
+        );
       else if (e === "audio-capture") showError("No audio input found. Check your audio source and Windows sound settings.");
       else if (e === "language-not-supported") showError("This browser doesn't support speech recognition for the selected speaker language.");
       else showError("Speech recognition: " + e);

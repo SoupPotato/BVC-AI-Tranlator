@@ -1,7 +1,7 @@
 // Service worker for the installable control app (scope: admin.html).
 // Network-first: always loads the latest version from GitHub Pages, and falls
 // back to the cached copy only if the network is unavailable.
-const CACHE = "bvc-control-v1";
+const CACHE = "bvc-control-v2";
 const SHELL = [
   "admin.html",
   "css/style.css",
@@ -32,7 +32,8 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    // "no-cache" = always ask GitHub for the latest version (still uses a cheap 304 if unchanged)
+    fetch(req, { cache: "no-cache" })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
